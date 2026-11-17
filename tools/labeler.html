@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>립싱크 라벨러</title>
+<style>
+  :root { --bg:#16181d; --panel:#20232b; --line:#323743; --text:#e8e8ea; --muted:#9097a3; --accent:#5fb3ff; --ok:#4fc38a; --warn:#ffb454; --bad:#ff6b6b; --mbp:#ff8a65; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; }
+  main { max-width:1280px; margin:0 auto; padding:16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  select, button { font:inherit; color:var(--text); background:#2a2e38; border:1px solid var(--line); border-radius:8px; padding:7px 12px; }
+  button { cursor:pointer; } button:hover:not(:disabled) { border-color:var(--accent); } button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:var(--accent); color:#0b1a2a; border-color:var(--accent); font-weight:bold; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  .muted { color:var(--muted); font-size:13px; }
+  #timer { font-variant-numeric:tabular-nums; font-size:15px; }
+  .canvaswrap { position:relative; }
+  canvas { display:block; width:100%; border-radius:6px; background:#0f1115; }
+  #overview { height:36px; cursor:pointer; margin-bottom:6px; }
+  #main { height:330px; cursor:crosshair; }
+  .tokens { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .tok { padding:4px 8px; border-radius:6px; border:1px solid var(--line); font-size:14px; cursor:pointer; background:#1b1e25; }
+  .tok .w { color:var(--muted); font-size:11px; margin-left:3px; }
+  .tok.mbp { border-color:#5a3a30; }
+  .tok.done { background:#1f3a2c; border-color:#2f6b4c; }
+  .tok.mbp.done { background:#4a2e25; border-color:#8a4a38; }
+  .tok.skip { opacity:.4; text-decoration:line-through; }
+  .tok.cur { outline:2px solid var(--accent); }
+  .now { font-size:22px; margin:6px 0; }
+  .now b { color:var(--accent); }
+  .now .mbpc { color:var(--mbp); }
+  .info { font-size:13px; min-height:18px; color:var(--muted); }
+  .info.ok { color:var(--ok); } .info.bad { color:var(--bad); } .info.warn { color:var(--warn); }
+  .help { font-size:13px; color:var(--muted); line-height:1.8; }
+  kbd { background:#2a2e38; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🏷 립싱크 라벨러 — lipsync-poc</h1>
+  <div class="sub">모음 시작(점)과 입 닫힘(구간)을 찍어 Audacity 라벨 형식으로 저장합니다. 자동 결과는 보여 주지 않습니다 (정답이 예측에 끌려가지 않도록).</div>
+
+  <div class="panel row">
+    <button id="pickRoot" class="primary">① 프로젝트 폴더 선택 (Lip-sync)</button>
+    <label>② 대사 <select id="sid"></select></label>
+    <label><input type="checkbox" id="repeat"> 다시 하기 (사람끼리 차이 측정용 → labels/repeat/)</label>
+    <span id="rootState" class="muted">폴더를 고르면 음성을 읽고 라벨을 바로 저장합니다.</span>
+    <label class="muted">또는 음성 파일 직접 열기 <input type="file" id="fileIn" accept="audio/*"></label>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <div class="now" id="now">대사를 고르세요</div>
+      <div class="row"><span class="muted">작업 시간</span> <span id="timer">0:00</span> <button id="pauseT">⏸</button></div>
+    </div>
+    <div class="tokens" id="tokens"></div>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:8px">
+      <button id="play">▶ 재생 <kbd>Space</kbd></button>
+      <span class="muted">속도</span>
+      <button class="spd" data-r="1">1×</button><button class="spd on" data-r="0.5">0.5×</button><button class="spd" data-r="0.25">0.25×</button>
+      <span class="muted" style="margin-left:12px">확대</span>
+      <button id="zin">＋ <kbd>W</kbd></button><button id="zout">－ <kbd>S</kbd></button><button id="zfit">소리 구간 <kbd>F</kbd></button><button id="zall">전체</button>
+      <span style="flex:1"></span>
+      <button id="skip">이 항목 건너뛰기 <kbd>X</kbd></button>
+      <button id="undo">되돌리기 <kbd>Ctrl+Z</kbd></button>
+      <button id="save" class="primary">저장 <kbd>Ctrl+S</kbd></button>
+    </div>
+    <canvas id="overview" width="2400" height="72"></canvas>
+    <div class="canvaswrap"><canvas id="main" width="2400" height="660"></canvas></div>
+    <div class="info" id="info"></div>
+    <div class="help">
+      <b>모음</b>: 모음이 시작되는 지점을 <b>클릭</b> (스펙트로그램에서 진한 가로 띠가 시작되는 곳) ·
+      <b>입 닫힘(MBP)</b>: 입술이 닫힌 구간을 <b>드래그</b> (소리가 비거나 약해지는 틈) ·
+      찍은 표시는 <b>끌어서</b> 고치기 · 위쪽 항목을 클릭하면 그 항목을 다시 찍기<br>
+      <kbd>Space</kbd> 재생/정지 (선택 구간이 있으면 그 구간, 없으면 클릭한 곳 0.3초 앞부터) ·
+      마우스 휠 = 확대/축소 · <kbd>Shift</kbd>+휠 또는 위쪽 막대 = 이동 · <kbd>Q</kbd>/<kbd>E</kbd> = 좌우 이동
+    </div>
+  </div>
+</main>
+
+<script>
+// 찍을 순서: [종류, 이름, 음절 힌트, 단어]. M = 입 닫힘 구간, V = 모음 시작.
+// 이어지는 입 닫힘(예: "좀 먹자"의 ㅁ받침+ㅁ)은 하나로 묶었다.
+const PLAN = {
+  ko_01: { text: "바람이 멈추면 우리는 바다로 간다.", toks: [
+    ["M","MBP","ㅂ","바람이"],["V","ㅏ","바","바람이"],["V","ㅏ","라","바람이"],["M","MBP","ㅁ","바람이"],["V","ㅣ","미","바람이"],
+    ["M","MBP","ㅁ","멈추면"],["V","ㅓ","멈","멈추면"],["M","MBP","ㅁ받침","멈추면"],["V","ㅜ","추","멈추면"],["M","MBP","ㅁ","멈추면"],["V","ㅕ","면","멈추면"],
+    ["V","ㅜ","우","우리는"],["V","ㅣ","리","우리는"],["V","ㅡ","는","우리는"],
+    ["M","MBP","ㅂ","바다로"],["V","ㅏ","바","바다로"],["V","ㅏ","다","바다로"],["V","ㅗ","로","바다로"],
+    ["V","ㅏ","간","간다"],["V","ㅏ","다","간다"]]},
+  ko_02: { text: "우리 모두 그 오두막으로 돌아가야 해.", toks: [
+    ["V","ㅜ","우","우리"],["V","ㅣ","리","우리"],
+    ["M","MBP","ㅁ","모두"],["V","ㅗ","모","모두"],["V","ㅜ","두","모두"],
+    ["V","ㅡ","그","그"],
+    ["V","ㅗ","오","오두막으로"],["V","ㅜ","두","오두막으로"],["M","MBP","ㅁ","오두막으로"],["V","ㅏ","막","오두막으로"],["V","ㅡ","으","오두막으로"],["V","ㅗ","로","오두막으로"],
+    ["V","ㅗ","돌","돌아가야"],["V","ㅏ","아","돌아가야"],["V","ㅏ","가","돌아가야"],["V","ㅑ","야","돌아가야"],
+    ["V","ㅐ","해","해"]]},
+  ko_03: { text: "이 길의 끝에서 기다릴게.", toks: [
+    ["V","ㅣ","이","이"],["V","ㅣ","길","길의"],["V","ㅢ","의","길의"],
+    ["V","ㅡ","끝","끝에서"],["V","ㅔ","에","끝에서"],["V","ㅓ","서","끝에서"],
+    ["V","ㅣ","기","기다릴게"],["V","ㅏ","다","기다릴게"],["V","ㅣ","릴","기다릴게"],["V","ㅔ","게","기다릴게"]]},
+  ko_04: { text: "네가 말했던 그 약속, 아직 기억해?", toks: [
+    ["V","ㅔ","네","네가"],["V","ㅏ","가","네가"],
+    ["M","MBP","ㅁ","말했던"],["V","ㅏ","말","말했던"],["V","ㅐ","했","말했던"],["V","ㅓ","던","말했던"],
+    ["V","ㅡ","그","그"],["V","ㅑ","약","약속"],["V","ㅗ","속","약속"],
+    ["V","ㅏ","아","아직"],["V","ㅣ","직","아직"],
+    ["V","ㅣ","기","기억해"],["V","ㅓ","억","기억해"],["V","ㅐ","해","기억해"]]},
+  ko_05: { text: "같이 국물 좀 먹자. 좋아, 정말 좋아!", toks: [
+    ["V","ㅏ","같","같이"],["V","ㅣ","이","같이"],
+    ["V","ㅜ","국","국물"],["M","MBP","ㅁ","국물"],["V","ㅜ","물","국물"],
+    ["V","ㅗ","좀","좀"],["M","MBP","ㅁ+ㅁ","좀 먹자"],["V","ㅓ","먹","먹자"],["V","ㅏ","자","먹자"],
+    ["V","ㅗ","좋","좋아"],["V","ㅏ","아","좋아"],
+    ["V","ㅓ","정","정말"],["M","MBP","ㅁ","정말"],["V","ㅏ","말","정말"],
+    ["V","ㅗ","좋","좋아"],["V","ㅏ","아","좋아"]]},
+  en_01: { text: "The birch canoe slid on the smooth planks.", toks: [
+    ["V","AH","the","The"],["M","MBP","b","birch"],["V","ER","bir","birch"],
+    ["V","AH","ca","canoe"],["V","UW","noe","canoe"],["V","IH","sli","slid"],["V","AA","on","on"],["V","AH","the","the"],
+    ["M","MBP","m","smooth"],["V","UW","moo","smooth"],["M","MBP","p","planks"],["V","AE","pla","planks"]]},
+};
+
+const $ = id => document.getElementById(id);
+const main = $("main"), ov = $("overview"), mg = main.getContext("2d"), og = ov.getContext("2d");
+let root = null, sid = null, buf = null, data = null, sr = 48000, dur = 0, specImg = null, peaks = null;
+let marks = [], cur = 0, view = [0, 1], cursor = 0, sel = null, rate = 0.5;
+let audio = new Audio(), audioUrl = null, playEnd = null, history = [];
+let tStart = 0, tAcc = 0, tPaused = true;
+
+// ---------- 초기화 ----------
+Object.keys(PLAN).forEach(k => $("sid").insertAdjacentHTML("beforeend", `<option value="${k}">${k}</option>`));
+$("sid").onchange = () => loadFromRoot();
+$("repeat").onchange = () => loadFromRoot();
+function info(m, c = "") { $("info").textContent = m; $("info").className = "info " + c; }
+
+$("pickRoot").onclick = async () => {
+  if (!window.showDirectoryPicker) { info("이 브라우저는 폴더 접근을 지원하지 않습니다. Chrome/Edge를 쓰거나 음성 파일을 직접 여세요.", "bad"); return; }
+  try {
+    const h = await window.showDirectoryPicker({ id: "lipsync-root", mode: "readwrite" });
+    try { await (await h.getDirectoryHandle("samples")).getDirectoryHandle("audio"); }
+    catch { info("고른 폴더에 samples/audio가 없습니다. D:\\aiffel\\Lip-sync 폴더 자체를 골라 주세요.", "bad"); return; }
+    root = h; $("rootState").textContent = `프로젝트: ${h.name}/`;
+    loadFromRoot();
+  } catch (e) { if (e.name !== "AbortError") info("폴더 선택 실패: " + e.message, "bad"); }
+};
+$("fileIn").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const m = f.name.match(/^(.+)\.\w+$/); const id = m && PLAN[m[1]] ? m[1] : $("sid").value;
+  $("sid").value = id; await openAudio(id, await f.arrayBuffer(), null);
+};
+
+async function labelsDir(create) {
+  let d = await (await root.getDirectoryHandle("samples")).getDirectoryHandle("labels", { create });
+  if ($("repeat").checked) d = await d.getDirectoryHandle("repeat", { create });
+  return d;
+}
+async function loadFromRoot() {
+  if (!root) { sid = $("sid").value; return; }
+  const id = $("sid").value;
+  try {
+    const fh = await (await (await root.getDirectoryHandle("samples")).getDirectoryHandle("audio")).getFileHandle(id + ".wav");
+    let existing = null;
+    try { existing = await (await (await labelsDir(false)).getFileHandle(id + ".txt")).getFile().then(f => f.text()); } catch {}
+    await openAudio(id, await (await fh.getFile()).arrayBuffer(), existing);
+  } catch (e) { info(`samples/audio/${id}.wav를 열 수 없습니다: ${e.message}`, "bad"); }
+}
+
+async function openAudio(id, bytes, existingText) {
+  stop();
+  sid = id;
+  const ctx = new (window.OfflineAudioContext || window.AudioContext)(1, 2, 48000);
+  buf = await ctx.decodeAudioData(bytes.slice(0));
+  sr = buf.sampleRate; dur = buf.duration; data = buf.getChannelData(0);
+  if (audioUrl) URL.revokeObjectURL(audioUrl);
+  audioUrl = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+  audio.src = audioUrl; audio.preservesPitch = true; audio.playbackRate = rate;
+  peaks = null; computeSpec();
+  marks = PLAN[id].toks.map(() => null); history = []; cur = 0; sel = null; cursor = 0;
+  if (existingText) { applyExisting(existingText); }
+  fitVoiced();
+  tAcc = 0; tStart = performance.now(); tPaused = false; $("pauseT").textContent = "⏸";
+  renderTokens(); draw();
+  info(existingText ? `기존 라벨을 불러왔습니다 (${$("repeat").checked ? "labels/repeat/" : "labels/"}${id}.txt). 고칠 항목을 클릭해 다시 찍으세요. 작업 시간은 0부터 다시 잽니다.` :
+       `${id} 열림 (${dur.toFixed(2)}초). 첫 항목부터 찍으세요.`, existingText ? "warn" : "ok");
+}
+function applyExisting(text) {
+  const vs = [], ms = [];
+  for (const line of text.split(/\r?\n/)) {
+    const p = line.split("\t"); if (p.length < 2 || line.startsWith("\\")) continue;
+    const s = +p[0], e = +p[1], n = (p[2] || "").trim();
+    (n.toLowerCase() === "mbp" ? ms : vs).push([s, e]);
+  }
+  let vi = 0, mi = 0;
+  PLAN[sid].toks.forEach((t, i) => {
+    if (t[0] === "V" && vi < vs.length) marks[i] = { s: vs[vi++][0] };
+    else if (t[0] === "M" && mi < ms.length) { const [s, e] = ms[mi++]; marks[i] = { s, e }; }
+  });
+  cur = marks.findIndex(m => m === null); if (cur < 0) cur = marks.length;
+}
+
+// ---------- 스펙트로그램 (5ms 간격, 0~5kHz) ----------
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = a + len / 2, tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+function computeSpec() {
+  const N = 1024, hop = Math.round(sr * 0.005), frames = Math.max(1, Math.floor((data.length - N) / hop));
+  const maxBin = Math.min(N / 2, Math.round(5000 / (sr / N))), win = new Float32Array(N).map((_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N));
+  const mags = new Float32Array(frames * maxBin); let mx = -Infinity;
+  const re = new Float32Array(N), im = new Float32Array(N);
+  for (let f = 0; f < frames; f++) {
+    for (let i = 0; i < N; i++) { re[i] = data[f * hop + i] * win[i]; im[i] = 0; }
+    fft(re, im);
+    for (let b = 0; b < maxBin; b++) { const v = Math.log10(re[b] * re[b] + im[b] * im[b] + 1e-10); mags[f * maxBin + b] = v; if (v > mx) mx = v; }
+  }
+  const c = document.createElement("canvas"); c.width = frames; c.height = maxBin;
+  const g = c.getContext("2d"), img = g.createImageData(frames, maxBin);
+  for (let f = 0; f < frames; f++) for (let b = 0; b < maxBin; b++) {
+    const t = Math.max(0, Math.min(1, (mags[f * maxBin + b] - (mx - 7)) / 7)), y = maxBin - 1 - b, o = (y * frames + f) * 4;
+    img.data[o] = 255 * Math.min(1, t * 1.6); img.data[o + 1] = 255 * Math.max(0, t * 1.6 - 0.6); img.data[o + 2] = 90 * t + 30 * (1 - t); img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0); specImg = { c, frames, hop };
+  // 소리 구간 찾기용 10ms 음량
+  const h10 = Math.round(sr * 0.01); peaks = [];
+  for (let i = 0; i < data.length; i += h10) { let s = 0; for (let j = i; j < Math.min(data.length, i + h10); j++) s += data[j] * data[j]; peaks.push(Math.sqrt(s / h10)); }
+}
+function fitVoiced() {
+  const mx = Math.max(...peaks), on = peaks.map(v => v > mx * 0.08);
+  const a = on.indexOf(true), b = on.lastIndexOf(true);
+  view = a < 0 ? [0, dur] : [Math.max(0, a * 0.01 - 0.15), Math.min(dur, (b + 1) * 0.01 + 0.15)];
+}
+
+// ---------- 그리기 ----------
+const WAVE_H = 0.42; // 메인 캔버스에서 파형이 차지하는 비율 (나머지는 스펙트로그램)
+function tx(t) { return (t - view[0]) / (view[1] - view[0]) * main.width; }
+function xt(x) { return view[0] + x / main.width * (view[1] - view[0]); }
+function draw() {
+  const W = main.width, H = main.height, wh = H * WAVE_H;
+  mg.clearRect(0, 0, W, H);
+  if (!buf) return;
+  // 파형
+  const s0 = Math.floor(view[0] * sr), s1 = Math.ceil(view[1] * sr), per = (s1 - s0) / W;
+  mg.fillStyle = "#5fb3ff";
+  for (let x = 0; x < W; x++) {
+    let mn = 1, mx = -1; const a = Math.floor(s0 + x * per), b = Math.max(a + 1, Math.floor(s0 + (x + 1) * per));
+    for (let i = a; i < b && i < data.length; i++) { if (i < 0) continue; const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (mx >= mn) mg.fillRect(x, (1 - mx) * wh / 2, 1, Math.max(1, (mx - mn) * wh / 2));
+  }
+  // 스펙트로그램
+  if (specImg) {
+    const f0 = view[0] * sr / specImg.hop, f1 = view[1] * sr / specImg.hop;
+    mg.imageSmoothingEnabled = true;
+    mg.drawImage(specImg.c, f0, 0, Math.max(1, f1 - f0), specImg.c.height, 0, wh + 4, W, H - wh - 4);
+    mg.fillStyle = "#9097a3"; mg.font = "20px sans-serif"; mg.fillText("5kHz", 6, wh + 24); mg.fillText("0", 6, H - 6);
+  }
+  mg.fillStyle = "#323743"; mg.fillRect(0, wh, W, 4);
+  // 시간 눈금
+  const span = view[1] - view[0], step = span > 4 ? 0.5 : span > 2 ? 0.25 : span > 0.8 ? 0.1 : 0.05;
+  mg.fillStyle = "#6b7280"; mg.font = "18px sans-serif";
+  for (let t = Math.ceil(view[0] / step) * step; t < view[1]; t += step) { const x = tx(t); mg.fillRect(x, 0, 1, 10); mg.fillText(t.toFixed(2), x + 3, 26); }
+  // 선택 구간
+  if (sel) { mg.fillStyle = "rgba(95,179,255,.18)"; const a = tx(Math.min(...sel)), b = tx(Math.max(...sel)); mg.fillRect(a, 0, b - a, H); }
+  // 찍은 표시
+  PLAN[sid].toks.forEach((t, i) => {
+    const m = marks[i]; if (!m || m.skip) return;
+    const isCur = i === cur;
+    if (t[0] === "M") {
+      const a = tx(m.s), b = tx(m.e);
+      mg.fillStyle = isCur ? "rgba(255,138,101,.45)" : "rgba(255,138,101,.28)"; mg.fillRect(a, 0, b - a, H);
+      mg.fillStyle = "#ff8a65"; mg.fillRect(a - 1, 0, 3, H); mg.fillRect(b - 1, 0, 3, H);
+      mg.font = "bold 22px sans-serif"; mg.fillText("MBP", a + 4, 56);
+    } else {
+      const x = tx(m.s);
+      mg.fillStyle = isCur ? "#ffffff" : "#4fc38a"; mg.fillRect(x - 1.5, 0, 3, H);
+      mg.font = "bold 26px 'Malgun Gothic',sans-serif"; mg.fillText(t[1], x + 5, 84);
+      mg.font = "18px 'Malgun Gothic',sans-serif"; mg.fillStyle = "#9097a3"; mg.fillText(t[2], x + 5, 106);
+    }
+  });
+  // 커서, 재생 위치
+  mg.fillStyle = "#ffd75a"; mg.fillRect(tx(cursor) - 1, 0, 2, H);
+  if (!audio.paused) { mg.fillStyle = "#ffffff"; mg.fillRect(tx(audio.currentTime) - 1, 0, 2, H); }
+  drawOverview();
+}
+function drawOverview() {
+  const W = ov.width, H = ov.height; og.clearRect(0, 0, W, H);
+  if (!peaks) return;
+  const mx = Math.max(...peaks); og.fillStyle = "#3b4252";
+  peaks.forEach((v, i) => { const x = i * 0.01 / dur * W, h = v / mx * H; og.fillRect(x, (H - h) / 2, Math.max(1, W / peaks.length), h); });
+  og.strokeStyle = "#5fb3ff"; og.lineWidth = 3; og.strokeRect(view[0] / dur * W, 1, (view[1] - view[0]) / dur * W, H - 2);
+  if (!audio.paused) { og.fillStyle = "#fff"; og.fillRect(audio.currentTime / dur * W, 0, 2, H); }
+}
+function renderTokens() {
+  const box = $("tokens"); box.innerHTML = "";
+  if (!sid) return;
+  const toks = PLAN[sid].toks;
+  toks.forEach((t, i) => {
+    const m = marks[i], el = document.createElement("span");
+    el.className = "tok" + (t[0] === "M" ? " mbp" : "") + (m && !m.skip ? " done" : "") + (m && m.skip ? " skip" : "") + (i === cur ? " cur" : "");
+    el.innerHTML = (t[0] === "M" ? `닫힘` : t[1]) + `<span class="w">${t[2]}</span>`;
+    el.title = t[3]; el.onclick = () => { cur = i; renderTokens(); draw(); focusMark(i); };
+    box.appendChild(el);
+  });
+  const done = marks.filter(m => m && !m.skip).length, skipped = marks.filter(m => m && m.skip).length;
+  if (cur >= toks.length) $("now").innerHTML = `모두 찍었습니다 (${done}개${skipped ? `, 건너뜀 ${skipped}` : ""}) → <b>저장</b>하세요`;
+  else {
+    const t = toks[cur];
+    $("now").innerHTML = `<span class="muted">${PLAN[sid].text}</span><br>` + (t[0] === "M"
+      ? `<span class="mbpc">입 닫힘</span> — "${t[3]}"의 <b>${t[2]}</b> : 입술이 닫힌 구간을 <b>드래그</b>`
+      : `모음 <b>${t[1]}</b> — "${t[3]}"의 <b>${t[2]}</b> : 시작 지점을 <b>클릭</b>`) + ` <span class="muted">(${cur + 1}/${toks.length})</span>`;
+  }
+}
+function focusMark(i) {
+  const m = marks[i]; if (!m || m.skip) return;
+  const c = m.e != null ? (m.s + m.e) / 2 : m.s, half = (view[1] - view[0]) / 2;
+  if (c < view[0] || c > view[1]) { view = [Math.max(0, c - half), Math.min(dur, c + half)]; draw(); }
+}
+
+// ---------- 마우스 ----------
+let drag = null;
+function evT(e) { const r = main.getBoundingClientRect(); return xt((e.clientX - r.left) / r.width * main.width); }
+function hitMark(t) {
+  const tol = (view[1] - view[0]) * 0.008;
+  let best = null;
+  PLAN[sid].toks.forEach((tok, i) => {
+    const m = marks[i]; if (!m || m.skip) return;
+    for (const k of (tok[0] === "M" ? ["s", "e"] : ["s"])) { const d = Math.abs(m[k] - t); if (d < tol && (!best || d < best.d)) best = { i, k, d }; }
+  });
+  return best;
+}
+main.addEventListener("mousedown", e => {
+  if (!buf) return;
+  const t = evT(e), hit = hitMark(t);
+  if (hit) { pushHistory(); drag = { mode: "move", ...hit, prevCur: cur }; return; }
+  drag = { mode: "new", t0: t, x0: e.clientX };
+});
+window.addEventListener("mousemove", e => {
+  if (!drag || !buf) return;
+  const t = Math.max(0, Math.min(dur, evT(e)));
+  if (drag.mode === "move") { const m = marks[drag.i]; m[drag.k] = t; if (m.e != null && m.e < m.s) [m.s, m.e] = [m.e, m.s], drag.k = drag.k === "s" ? "e" : "s"; draw(); }
+  else if (Math.abs(e.clientX - drag.x0) > 4) { sel = [drag.t0, t]; draw(); }
+});
+window.addEventListener("mouseup", e => {
+  if (!drag || !buf) return;
+  const d = drag; drag = null;
+  if (d.mode === "move") { cur = d.prevCur; renderTokens(); draw(); info("표시를 옮겼습니다."); return; }  // 찍던 순서는 그대로 유지
+  const t = Math.max(0, Math.min(dur, evT(e))), isClick = Math.abs(e.clientX - d.x0) <= 4;
+  const tok = PLAN[sid].toks[cur];
+  if (isClick) {
+    sel = null; cursor = t;
+    if (tok && tok[0] === "V") place({ s: t });
+    else draw();
+  } else {
+    sel = [Math.min(d.t0, t), Math.max(d.t0, t)];
+    if (tok && tok[0] === "M") { place({ s: sel[0], e: sel[1] }); sel = null; }
+    else { cursor = sel[0]; draw(); info("구간을 선택했습니다. Space로 이 구간만 들을 수 있습니다. 모음은 클릭으로 찍습니다."); }
+  }
+});
+main.addEventListener("wheel", e => {
+  if (!buf) return; e.preventDefault();
+  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) { pan((e.deltaX || e.deltaY) > 0 ? 0.15 : -0.15); return; }
+  zoom(e.deltaY < 0 ? 0.7 : 1 / 0.7, evT(e));
+}, { passive: false });
+ov.addEventListener("mousedown", e => {
+  if (!buf) return;
+  const move = ev => { const r = ov.getBoundingClientRect(), c = (ev.clientX - r.left) / r.width * dur, half = (view[1] - view[0]) / 2;
+    view = [Math.max(0, Math.min(dur - 2 * half, c - half)), 0]; view[1] = view[0] + 2 * half; draw(); };
+  move(e); const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+});
+function zoom(f, at) {
+  const span = Math.min(dur, Math.max(0.15, (view[1] - view[0]) * f)), c = at ?? (view[0] + view[1]) / 2, r = (c - view[0]) / (view[1] - view[0]);
+  let a = c - span * r; a = Math.max(0, Math.min(dur - span, a)); view = [a, a + span]; draw();
+}
+function pan(f) { const span = view[1] - view[0]; let a = Math.max(0, Math.min(dur - span, view[0] + span * f)); view = [a, a + span]; draw(); }
+
+// ---------- 찍기 ----------
+function pushHistory() { history.push({ marks: marks.map(m => m && { ...m }), cur }); if (history.length > 200) history.shift(); }
+function place(m) {
+  pushHistory(); marks[cur] = m;
+  const next = marks.findIndex((x, i) => i > cur && x === null);
+  cur = next >= 0 ? next : marks.findIndex(x => x === null); if (cur < 0) cur = marks.length;
+  renderTokens(); draw();
+}
+$("skip").onclick = () => { if (!sid || cur >= marks.length) return; place({ skip: true }); info("건너뛴 항목은 저장되지 않습니다 (발음하지 않았거나 들리지 않을 때)."); };
+$("undo").onclick = () => { const h = history.pop(); if (!h) return; marks = h.marks; cur = h.cur; renderTokens(); draw(); };
+
+// ---------- 재생 ----------
+function stop() { audio.pause(); playEnd = null; $("play").innerHTML = "▶ 재생 <kbd>Space</kbd>"; }
+function play() {
+  if (!buf) return;
+  if (!audio.paused) { stop(); draw(); return; }
+  let a, b;
+  if (sel) { a = Math.min(...sel); b = Math.max(...sel); }
+  else { a = Math.max(0, cursor - 0.3); b = null; }
+  audio.playbackRate = rate; audio.currentTime = a; playEnd = b;
+  audio.play(); $("play").innerHTML = "■ 정지 <kbd>Space</kbd>"; tick();
+}
+function tick() {
+  if (audio.paused) { stop(); draw(); return; }
+  if (playEnd != null && audio.currentTime >= playEnd) { stop(); draw(); return; }
+  const t = audio.currentTime; if (t > view[1] || t < view[0]) { const span = view[1] - view[0]; view = [Math.max(0, Math.min(dur - span, t - span * 0.1)), 0]; view[1] = view[0] + span; }
+  draw(); requestAnimationFrame(tick);
+}
+audio.onended = () => { stop(); draw(); };
+$("play").onclick = play;
+document.querySelectorAll(".spd").forEach(b => b.onclick = () => {
+  rate = +b.dataset.r; audio.playbackRate = rate; document.querySelectorAll(".spd").forEach(x => x.classList.toggle("on", x === b));
+});
+$("zin").onclick = () => zoom(0.6); $("zout").onclick = () => zoom(1 / 0.6);
+$("zfit").onclick = () => { if (buf) { fitVoiced(); draw(); } };
+$("zall").onclick = () => { if (buf) { view = [0, dur]; draw(); } };
+
+// ---------- 시간 ----------
+function elapsed() { return tAcc + (tPaused ? 0 : (performance.now() - tStart)); }
+setInterval(() => { const s = Math.floor(elapsed() / 1000); $("timer").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 250);
+$("pauseT").onclick = () => {
+  if (tPaused) { tStart = performance.now(); tPaused = false; $("pauseT").textContent = "⏸"; }
+  else { tAcc += performance.now() - tStart; tPaused = true; $("pauseT").textContent = "▶"; }
+};
+
+// ---------- 저장 ----------
+function labelText() {
+  const rows = [];
+  PLAN[sid].toks.forEach((t, i) => {
+    const m = marks[i]; if (!m || m.skip) return;
+    rows.push(t[0] === "M" ? [m.s, m.e, "MBP"] : [m.s, m.s, t[1]]);
+  });
+  rows.sort((a, b) => a[0] - b[0]);
+  return rows.map(r => `${r[0].toFixed(6)}\t${r[1].toFixed(6)}\t${r[2]}`).join("\n") + "\n";
+}
+async function writeFile(dir, name, text) { const fh = await dir.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(text); await w.close(); }
+async function save() {
+  if (!sid || !buf) return;
+  const missing = marks.filter(m => m === null).length;
+  if (missing && !confirm(`아직 안 찍은 항목이 ${missing}개 있습니다. 찍은 것만 저장할까요?`)) return;
+  const text = labelText(), secs = Math.round(elapsed() / 1000), sub = $("repeat").checked ? "repeat/" : "";
+  try {
+    if (root) {
+      const dir = await labelsDir(true);
+      await writeFile(dir, sid + ".txt", text);
+      // 작업 시간 기록 (같은 ID가 있으면 교체)
+      let csv = "id,seconds,note\n";
+      try { csv = await (await dir.getFileHandle("manual_time.csv")).getFile().then(f => f.text()); } catch {}
+      const lines = csv.trim().split(/\r?\n/).filter(l => l && !l.startsWith(sid + ","));
+      if (!lines.length || !lines[0].startsWith("id,")) lines.unshift("id,seconds,note");
+      lines.push(`${sid},${secs},labeler.html${missing ? ` (미완료 ${missing}개)` : ""}`);
+      await writeFile(dir, "manual_time.csv", lines.join("\n") + "\n");
+      info(`저장 완료: samples/labels/${sub}${sid}.txt, 작업 시간 ${secs}초 → samples/labels/${sub}manual_time.csv`, "ok");
+    } else {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" })); a.download = sid + ".txt"; a.click();
+      info(`다운로드 폴더에 ${sid}.txt로 저장했습니다. samples/labels/${sub}로 옮겨 주세요. 작업 시간 ${secs}초는 manual_time.csv에 직접 적어 주세요.`, "warn");
+    }
+    if (!tPaused) { tAcc += performance.now() - tStart; tPaused = true; $("pauseT").textContent = "▶"; }
+  } catch (e) { info("저장 실패: " + e.message, "bad"); }
+}
+$("save").onclick = save;
+
+// ---------- 키보드 ----------
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); play(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); $("undo").click(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
+  else if (e.key === "w" || e.key === "W") zoom(0.6, cursor);
+  else if (e.key === "s" || e.key === "S") zoom(1 / 0.6, cursor);
+  else if (e.key === "q" || e.key === "Q") pan(-0.25);
+  else if (e.key === "e" || e.key === "E") pan(0.25);
+  else if (e.key === "f" || e.key === "F") $("zfit").click();
+  else if (e.key === "x" || e.key === "X") $("skip").click();
+  else if (e.key === "Escape") { sel = null; draw(); }
+});
+window.addEventListener("beforeunload", e => { if (sid && marks.some(m => m) ) { e.preventDefault(); e.returnValue = ""; } });
+sid = $("sid").value; renderTokens();
+</script>
+</body>
+</html>

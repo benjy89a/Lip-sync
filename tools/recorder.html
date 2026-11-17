@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대사 녹음기</title>
+<style>
+  :root { --bg:#16181d; --panel:#20232b; --line:#323743; --text:#e8e8ea; --muted:#9097a3; --accent:#5fb3ff; --ok:#4fc38a; --warn:#ffb454; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:20px 16px 40px; display:grid; grid-template-columns:240px 1fr; gap:16px; }
+  h1 { font-size:18px; margin:0 0 4px; grid-column:1/-1; }
+  .sub { color:var(--muted); font-size:13px; grid-column:1/-1; margin-bottom:4px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .setup { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  select, button { font:inherit; color:var(--text); background:#2a2e38; border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
+  button { cursor:pointer; } button:hover:not(:disabled) { border-color:var(--accent); } button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:var(--accent); color:#0b1a2a; border-color:var(--accent); font-weight:bold; }
+  button.rec { background:var(--bad); color:#fff; border-color:var(--bad); font-weight:bold; }
+  #folderState { font-size:13px; color:var(--muted); }
+  ul { list-style:none; margin:0; padding:0; }
+  li { padding:7px 8px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; font-size:14px; }
+  li:hover { background:#2a2e38; } li.active { background:#2f3a4d; outline:1px solid var(--accent); }
+  li .st { color:var(--muted); } li.done .st { color:var(--ok); }
+  .id { font-size:13px; color:var(--accent); letter-spacing:.5px; }
+  .line { font-size:26px; line-height:1.5; margin:8px 0 6px; word-break:keep-all; }
+  .note { display:inline-block; background:#3a2f1c; color:var(--warn); border-radius:6px; padding:4px 10px; font-size:14px; margin-bottom:8px; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 10px; }
+  .meter { height:10px; background:#111318; border-radius:5px; overflow:hidden; margin:8px 0; }
+  .meter > div { height:100%; width:0; background:linear-gradient(90deg,var(--ok),var(--warn) 75%,var(--bad)); transition:width .05s; }
+  canvas { width:100%; height:120px; background:#111318; border-radius:8px; display:block; }
+  .info { font-size:13px; color:var(--muted); margin-top:8px; min-height:20px; }
+  .info.warn { color:var(--warn); } .info.bad { color:var(--bad); } .info.ok { color:var(--ok); }
+  .tips { font-size:13px; color:var(--muted); line-height:1.7; margin-top:12px; }
+  kbd { background:#2a2e38; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12px; }
+  @media (max-width:720px) { main { grid-template-columns:1fr; } .line { font-size:21px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎙 대사 녹음기 — lipsync-poc</h1>
+  <div class="sub">대본 ID 이름의 16bit WAV로 저장합니다. 녹음은 이 PC 안에서만 처리되고 외부로 전송되지 않습니다.</div>
+
+  <div class="panel setup">
+    <label>마이크 <select id="mic"><option>마이크 권한을 허용해 주세요</option></select></label>
+    <button id="pickFolder">저장 폴더 선택 (samples/audio)</button>
+    <span id="folderState">폴더를 고르지 않으면 다운로드 폴더로 저장됩니다.</span>
+  </div>
+
+  <div class="panel">
+    <ul id="list"></ul>
+  </div>
+
+  <div class="panel">
+    <div class="id" id="curId"></div>
+    <div class="line" id="curText"></div>
+    <div id="curNote"></div>
+    <div class="meter"><div id="level"></div></div>
+    <div class="controls">
+      <button id="recBtn" class="rec">● 녹음 <kbd>Space</kbd></button>
+      <button id="playBtn" disabled>▶ 듣기 <kbd>P</kbd></button>
+      <button id="saveBtn" class="primary" disabled>저장하고 다음 <kbd>Enter</kbd></button>
+      <button id="prevBtn">◀ 이전</button>
+      <button id="nextBtn">다음 ▶</button>
+    </div>
+    <canvas id="wave" width="1400" height="240"></canvas>
+    <div class="info" id="info"></div>
+    <div class="tips">
+      • 녹음을 누르고 <b>약 0.5초 쉰 다음</b> 말하고, 끝나고 0.5초 뒤에 멈추세요.<br>
+      • 다시 하려면 그냥 녹음을 다시 누르면 됩니다 (<kbd>R</kbd>도 가능). 저장 전까지는 덮어씁니다.<br>
+      • 잡음 제거·자동 음량은 꺼져 있습니다 (입모양 분석에는 원음이 좋습니다). 마이크와 입 거리는 주먹 하나 정도.
+    </div>
+  </div>
+</main>
+
+<script>
+const SCRIPT = [
+  ["ko_01","바람이 멈추면 우리는 바다로 간다.",""],
+  ["ko_02","우리 모두 그 오두막으로 돌아가야 해.",""],
+  ["ko_03","이 길의 끝에서 기다릴게.",""],
+  ["ko_04","네가 말했던 그 약속, 아직 기억해?",""],
+  ["ko_05","같이 국물 좀 먹자. 좋아, 정말 좋아!",""],
+  ["en_01","The birch canoe slid on the smooth planks.",""],
+  ["en_02","We must move before the moon rises over the valley.",""],
+  ["en_03","I'll wait for you at the end of the road.",""],
+  ["fail_01","바람이 멈추면 우리는 바다로 간다.","⚡ 최대한 빠르게"],
+  ["fail_02","이번 보스 패턴은 진짜 crazy했어, 완전 next level이야.","🔀 영어 단어는 영어 발음으로"],
+  ["fail_03","하하, 진짜? …하아, 알겠어.","😄 실제로 웃고, 한숨 쉬듯이"],
+  ["fail_04","이 길의 끝에서 기다릴게.","🤫 속삭이듯이"],
+];
+const $ = id => document.getElementById(id);
+let idx = 0, saved = new Set(), dirHandle = null;
+let stream = null, ctx = null, source = null, proc = null, analyser = null;
+let recording = false, chunks = [], lastBuffer = null, sampleRate = 48000, playing = null;
+
+function renderList() {
+  $("list").innerHTML = "";
+  SCRIPT.forEach(([id], i) => {
+    const li = document.createElement("li");
+    li.className = (i === idx ? "active " : "") + (saved.has(id) ? "done" : "");
+    li.innerHTML = `<span>${id}</span><span class="st">${saved.has(id) ? "✓ 저장됨" : "—"}</span>`;
+    li.onclick = () => select(i);
+    $("list").appendChild(li);
+  });
+}
+function select(i) {
+  if (recording) return;
+  idx = Math.max(0, Math.min(SCRIPT.length - 1, i));
+  const [id, text, note] = SCRIPT[idx];
+  $("curId").textContent = id;
+  $("curText").textContent = text;
+  $("curNote").innerHTML = note ? `<span class="note">${note}</span>` : "";
+  lastBuffer = null; $("playBtn").disabled = true; $("saveBtn").disabled = true;
+  info(saved.has(id) ? "이미 저장된 대사입니다. 다시 녹음하면 덮어씁니다." : "", saved.has(id) ? "ok" : "");
+  drawWave(null); renderList();
+}
+function info(msg, cls = "") { $("info").textContent = msg; $("info").className = "info " + cls; }
+
+async function openMic(deviceId) {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({ audio: {
+    deviceId: deviceId ? { exact: deviceId } : undefined, channelCount: 1,
+    echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  if (!ctx) ctx = new AudioContext();
+  sampleRate = ctx.sampleRate;
+  if (source) source.disconnect();
+  source = ctx.createMediaStreamSource(stream);
+  analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+  proc = ctx.createScriptProcessor(4096, 1, 1);
+  proc.onaudioprocess = e => { if (recording) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+  source.connect(analyser); source.connect(proc); proc.connect(ctx.destination);
+}
+async function listMics() {
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
+  const cur = stream?.getAudioTracks()[0]?.getSettings().deviceId;
+  $("mic").innerHTML = devs.map(d => `<option value="${d.deviceId}" ${d.deviceId === cur ? "selected" : ""}>${d.label || "마이크"}</option>`).join("");
+}
+$("mic").onchange = async e => { await openMic(e.target.value); info("마이크를 바꿨습니다: " + e.target.selectedOptions[0].text); };
+
+function meterLoop() {
+  if (analyser) {
+    const a = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(a);
+    let peak = 0; for (const v of a) peak = Math.max(peak, Math.abs(v));
+    $("level").style.width = Math.min(100, peak * 100) + "%";
+  }
+  requestAnimationFrame(meterLoop);
+}
+
+async function toggleRec() {
+  if (!stream) { try { await openMic(); await listMics(); } catch (e) { info("마이크를 열 수 없습니다: " + e.message, "bad"); return; } }
+  if (ctx.state === "suspended") await ctx.resume();
+  if (!recording) {
+    stopPlay(); chunks = []; recording = true;
+    $("recBtn").textContent = "■ 정지 (Space)"; $("saveBtn").disabled = true; $("playBtn").disabled = true;
+    info("녹음 중… 0.5초 쉬고 말하세요", "warn");
+  } else {
+    recording = false; $("recBtn").innerHTML = "● 다시 녹음 <kbd>Space</kbd>";
+    const len = chunks.reduce((n, c) => n + c.length, 0);
+    lastBuffer = new Float32Array(len); let o = 0; for (const c of chunks) { lastBuffer.set(c, o); o += c.length; }
+    drawWave(lastBuffer); check(lastBuffer);
+    $("playBtn").disabled = false; $("saveBtn").disabled = false;
+  }
+}
+function check(b) {
+  let peak = 0, sum = 0; for (const v of b) { peak = Math.max(peak, Math.abs(v)); sum += v * v; }
+  const sec = (b.length / sampleRate).toFixed(2);
+  if (b.length < sampleRate * 0.5) return info(`${sec}초 — 너무 짧습니다. 다시 녹음해 주세요.`, "bad");
+  if (peak >= 0.99) return info(`${sec}초 — 소리가 찢어졌습니다(클리핑). 마이크에서 조금 떨어지거나 입력 음량을 낮춰 주세요.`, "bad");
+  if (peak < 0.08) return info(`${sec}초 — 소리가 너무 작습니다 (최대 ${(peak * 100).toFixed(0)}%). 마이크를 가까이 해 주세요.`, "warn");
+  info(`${sec}초, 최대 음량 ${(peak * 100).toFixed(0)}% — 좋습니다. 들어 보고 저장하세요.`, "ok");
+}
+function drawWave(b) {
+  const c = $("wave"), g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height);
+  g.strokeStyle = "#323743"; g.beginPath(); g.moveTo(0, c.height / 2); g.lineTo(c.width, c.height / 2); g.stroke();
+  if (!b) return;
+  g.strokeStyle = "#5fb3ff"; g.beginPath();
+  const step = Math.max(1, Math.floor(b.length / c.width));
+  for (let x = 0; x < c.width; x++) {
+    let mn = 1, mx = -1; for (let i = x * step; i < (x + 1) * step && i < b.length; i++) { mn = Math.min(mn, b[i]); mx = Math.max(mx, b[i]); }
+    g.moveTo(x, (1 - mx) * c.height / 2); g.lineTo(x, (1 - mn) * c.height / 2);
+  }
+  g.stroke();
+}
+function stopPlay() { if (playing) { try { playing.stop(); } catch {} playing = null; } }
+function play() {
+  if (!lastBuffer) return; stopPlay();
+  const ab = ctx.createBuffer(1, lastBuffer.length, sampleRate); ab.copyToChannel(lastBuffer, 0);
+  playing = ctx.createBufferSource(); playing.buffer = ab; playing.connect(ctx.destination); playing.start();
+}
+function encodeWav(b, sr) {
+  const buf = new ArrayBuffer(44 + b.length * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + b.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, b.length * 2, true);
+  for (let i = 0; i < b.length; i++) { const s = Math.max(-1, Math.min(1, b[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+  return new Blob([buf], { type: "audio/wav" });
+}
+async function save() {
+  if (!lastBuffer || recording) return;
+  const id = SCRIPT[idx][0], blob = encodeWav(lastBuffer, sampleRate), name = id + ".wav";
+  try {
+    if (dirHandle) {
+      const fh = await dirHandle.getFileHandle(name, { create: true });
+      const ws = await fh.createWritable(); await ws.write(blob); await ws.close();
+    } else {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+    saved.add(id); info(`${name} 저장됨` + (dirHandle ? ` → ${dirHandle.name}/` : " (다운로드 폴더)"), "ok");
+    if (idx < SCRIPT.length - 1) setTimeout(() => select(idx + 1), 400); else renderList();
+  } catch (e) { info("저장 실패: " + e.message, "bad"); }
+}
+$("pickFolder").onclick = async () => {
+  if (!window.showDirectoryPicker) { $("folderState").textContent = "이 브라우저는 폴더 저장을 지원하지 않습니다 (Chrome/Edge 권장). 다운로드 폴더로 저장됩니다."; return; }
+  try {
+    dirHandle = await window.showDirectoryPicker({ id: "lipsync-audio", mode: "readwrite" });
+    saved = new Set();
+    for await (const [n] of dirHandle.entries()) { const m = n.match(/^(.+)\.wav$/i); if (m && SCRIPT.some(s => s[0] === m[1])) saved.add(m[1]); }
+    $("folderState").textContent = `저장 위치: ${dirHandle.name}/ (이미 있는 녹음 ${saved.size}개)`;
+    renderList();
+  } catch (e) { if (e.name !== "AbortError") $("folderState").textContent = "폴더 선택 실패: " + e.message; }
+};
+$("recBtn").onclick = toggleRec; $("playBtn").onclick = play; $("saveBtn").onclick = save;
+$("prevBtn").onclick = () => select(idx - 1); $("nextBtn").onclick = () => select(idx + 1);
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT") return;
+  if (e.code === "Space") { e.preventDefault(); toggleRec(); }
+  else if (e.key === "Enter") { e.preventDefault(); save(); }
+  else if (e.key === "p" || e.key === "P") play();
+  else if ((e.key === "r" || e.key === "R") && !recording) toggleRec();
+});
+select(0); meterLoop();
+navigator.mediaDevices.getUserMedia({ audio: true }).then(s => { s.getTracks().forEach(t => t.stop()); listMics(); }).catch(() => info("마이크 권한이 필요합니다. 주소창 옆 아이콘에서 허용해 주세요.", "warn"));
+</script>
+</body>
+</html>

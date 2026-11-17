@@ -1,0 +1,36 @@
+{
+  "_comment": "언어와 무관한 파이프라인 설정.",
+  "fps": 30,
+  "lead_frames": 0,
+  "_lead_frames_note": "입모양을 소리보다 몇 프레임 앞당길지. 애니메이션 관례상 1~2프레임 앞당기기도 하지만, 정확도 검증을 위해 기본은 0.",
+  "silence_gap_sec": 0.15,
+  "_silence_gap_sec_note": "단어 사이 공백이 이보다 길면 입을 다무는 REST 키를 넣는다.",
+  "rest_pad_sec": 0.06,
+  "mbp_hold_sec": 0.035,
+  "_mbp_hold_sec_note": "ㅁ/ㅂ/ㅍ 닫힘을 키 중앙에서 앞뒤로 유지하는 시간 (최대값, 구간이 짧으면 줄어듦).",
+  "rms": {
+    "channels": [
+      "jawOpen",
+      "mouthLowerDownLeft",
+      "mouthLowerDownRight",
+      "mouthFunnel"
+    ],
+    "floor": 0.6,
+    "max_scale": 1.25,
+    "percentile": 95
+  },
+  "review": {
+    "min_word_prob": 0.6,
+    "_note": "단어 확률이 이 값보다 낮은 단어가 하나라도 있으면 검수 필요로 표시. TTS 20개를 보고 정한 값. 직접 녹음에서는 확신하면서 틀린 오인식(fail_01 0.71, fail_02 0.67)을 놓쳤다 - 대본이 있으면 대본 비교가 우선이고 이 표시는 보조 수단. 자세한 내용은 docs/model_selection.md 7장."
+  },
+  "boundary": {
+    "enabled": true,
+    "rel_threshold": 0.12,
+    "pre_roll_sec": 0.05,
+    "post_roll_sec": 0.03,
+    "min_change_sec": 0.04,
+    "_note": "음량으로 단어 앞뒤 무음을 잘라 내는 보정. 기본 켜짐 (2026-11-17: 녹음 정상 8개에서 무음 중 입 열림 149 -> 23프레임). 보정 전 결과는 --no-refine-boundaries. rel_threshold: 큰 소리(상위 95%) 대비 이 비율보다 작으면 무음. min_active_sec: 이보다 짧은 소리는 잡음으로 무시. long_gap_sec: 단어 안에 이보다 긴 무음이 있으면 소리가 긴 쪽만 단어로 본다.",
+    "min_active_sec": 0.06,
+    "long_gap_sec": 0.2
+  }
+}

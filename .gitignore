@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+.cache/
+
+# 결과물은 커밋하지 않는다 (다시 만들 수 있음). README에 쓰는 시연 자료만 예외.
+outputs/*
+!outputs/.gitkeep
+!outputs/showcase/
+
+# 음성과 라벨은 재현에 필요하므로 커밋한다:
+#   samples/audio/tts/  Windows TTS로 만든 샘플
+#   samples/audio/      직접 녹음한 대사 12개
+#   samples/labels/     수작업 라벨과 작업 시간
+
+# 작업용 인수인계 문서 (로컬 전용, 공개하지 않음)
+CLAUDE.md

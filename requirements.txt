@@ -1,0 +1,15 @@
+# 버전 고정: 재현성을 위해 하위 의존성까지 명시한다.
+# (최신 huggingface_hub 2.x는 requests를 함께 설치하지 않아 faster-whisper 1.1.1이 import 실패함)
+faster-whisper==1.1.1
+ctranslate2==4.6.0
+huggingface_hub==0.26.2
+tokenizers==0.20.3
+onnxruntime==1.20.1
+av==13.1.0
+requests==2.32.3
+numpy==1.26.4
+soundfile==0.12.1
+g2p_en==2.1.0
+nltk==3.9.1
+matplotlib==3.9.2
+Pillow==10.4.0

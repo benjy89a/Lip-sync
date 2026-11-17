@@ -1,0 +1,13 @@
+id,lang,text,note
+ko_01,ko,바람이 멈추면 우리는 바다로 간다.,
+ko_02,ko,우리 모두 그 오두막으로 돌아가야 해.,
+ko_03,ko,이 길의 끝에서 기다릴게.,
+ko_04,ko,"네가 말했던 그 약속, 아직 기억해?",
+ko_05,ko,"같이 국물 좀 먹자. 좋아, 정말 좋아!",발음 규칙 검증용 (같이→가치 국물→궁물 좋아→조아)
+en_01,en,The birch canoe slid on the smooth planks.,
+en_02,en,We must move before the moon rises over the valley.,
+en_03,en,I'll wait for you at the end of the road.,
+fail_01,ko,바람이 멈추면 우리는 바다로 간다.,최대한 빠르게
+fail_02,ko,"이번 보스 패턴은 진짜 crazy했어, 완전 next level이야.",한영 혼용
+fail_03,ko,"하하, 진짜? …하아, 알겠어.",웃음과 한숨
+fail_04,ko,이 길의 끝에서 기다릴게.,속삭이듯이

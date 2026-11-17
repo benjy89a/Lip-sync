@@ -1,0 +1,36 @@
+{
+  "_comment": "영어 비짐 매핑 (ARPAbet, 강세 숫자는 제거 후 조회). 한국어와 같은 그룹을 쓰고 영어에만 있는 FV, TH, SH 그룹을 추가했다.",
+  "groups": {
+    "REST": {},
+    "A":   {"jawOpen": 0.7},
+    "EO":  {"jawOpen": 0.5, "mouthLowerDown": 0.2},
+    "O":   {"jawOpen": 0.35, "mouthFunnel": 0.6, "mouthPucker": 0.3},
+    "U":   {"jawOpen": 0.15, "mouthPucker": 0.8, "mouthFunnel": 0.3},
+    "EU":  {"jawOpen": 0.15, "mouthStretch": 0.5},
+    "I":   {"jawOpen": 0.15, "mouthSmile": 0.4, "mouthStretch": 0.4},
+    "E":   {"jawOpen": 0.4, "mouthStretch": 0.4},
+    "MBP": {"jawOpen": 0.0, "mouthPress": 0.6},
+    "S":   {"jawOpen": 0.1, "mouthStretch": 0.3},
+    "FV":  {"jawOpen": 0.05, "mouthRollLower": 0.6, "mouthUpperUp": 0.2},
+    "TH":  {"jawOpen": 0.12, "tongueOut": 0.3},
+    "SH":  {"jawOpen": 0.1, "mouthFunnel": 0.45, "mouthPucker": 0.35}
+  },
+  "vowels": {
+    "AA": ["A"], "AE": ["A"], "AH": ["EO"], "AO": ["O"],
+    "AW": ["A", "U"], "AY": ["A", "I"],
+    "EH": ["E"], "ER": ["EO"], "EY": ["E", "I"],
+    "IH": ["I"], "IY": ["I"],
+    "OW": ["O", "U"], "OY": ["O", "I"],
+    "UH": ["U"], "UW": ["U"]
+  },
+  "consonants": {
+    "M": "MBP", "B": "MBP", "P": "MBP",
+    "F": "FV", "V": "FV",
+    "TH": "TH", "DH": "TH",
+    "S": "S", "Z": "S",
+    "SH": "SH", "ZH": "SH", "CH": "SH", "JH": "SH",
+    "W": "U"
+  },
+  "_consonants_note": "목록에 없는 자음(T D K G N L R HH Y NG 등)은 키를 만들지 않고 앞뒤 모음 값을 이어받는다.",
+  "weights": {"vowel": 1.0, "glide": 0.35, "consonant": 0.45, "final": 0.45}
+}
