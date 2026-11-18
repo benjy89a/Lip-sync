@@ -144,7 +144,7 @@ $("pickRoot").onclick = async () => {
   try {
     const h = await window.showDirectoryPicker({ id: "lipsync-root", mode: "readwrite" });
     try { await (await h.getDirectoryHandle("samples")).getDirectoryHandle("audio"); }
-    catch { info("고른 폴더에 samples/audio가 없습니다. D:\\aiffel\\Lip-sync 폴더 자체를 골라 주세요.", "bad"); return; }
+    catch { info("고른 폴더에 samples/audio가 없습니다. 프로젝트 폴더(Lip-sync) 자체를 골라 주세요.", "bad"); return; }
     root = h; $("rootState").textContent = `프로젝트: ${h.name}/`;
     loadFromRoot();
   } catch (e) { if (e.name !== "AbortError") info("폴더 선택 실패: " + e.message, "bad"); }

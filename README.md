@@ -2,8 +2,10 @@
 
 성우 대사 음성(.wav)을 넣으면 **ARKit 52 블렌드쉐입 키프레임(30fps JSON/CSV)**을 자동 생성해,
 수작업 립싱크 키잉 시간을 줄이는 PoC입니다. 한국어(메인)와 영어를 지원합니다.
+대본 표에 감정을 적어 두면 입뿐 아니라 눈썹·눈·볼·코까지 얼굴 전체를 움직입니다.
 
-> 부트캠프 과제 "Main Quest 2. 내 도메인에서 AI로 개선 지점 찾아서 PoC 만들기" 제출물
+> 게임 NPC 대사처럼 양이 많은 대사에 **바로 다듬을 수 있는 베이스 페이셜 애니메이션**을 깔아,
+> 애니메이터는 처음부터 키를 찍는 대신 연기 보정에 집중하게 하는 것이 목표입니다.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/benjy89a/Lip-sync/blob/main/notebooks/lipsync_poc_colab.ipynb)
 
