@@ -42,6 +42,12 @@
     ]
    }
   ],
+  "emotion": {
+   "guide": "",
+   "parts": [],
+   "label": "중립"
+  },
+  "life_layer": false,
   "channels": [
    "eyeBlinkLeft",
    "eyeLookDownLeft",

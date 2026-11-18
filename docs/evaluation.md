@@ -1,7 +1,7 @@
 # 개선 효과 검증
 
 > 상태: 직접 녹음 12개의 인식 결과와, **수작업 라벨 2개(ko_01, ko_05) + 재라벨 1개(ko_01)** 기준 타이밍·입 닫힘·시간 측정까지 반영.
-> 재현: `python -m src.evaluate outputs/audio outputs/audio_raw outputs/audio_rms outputs/audio_script` → `outputs/eval/*_metrics.md`
+> 재현: 결과 생성은 `--no-emotion`(1차 범위: 입만)으로 한 뒤 `python -m src.evaluate outputs/audio outputs/audio_raw outputs/audio_rms outputs/audio_script` → `outputs/eval/*_metrics.md`
 > (`audio` = 기본 설정, `audio_raw` = 단어 경계 보정 끔, `audio_rms` = 음량 기준선, `audio_script` = 대본 힌트 켬)
 
 ## 0. 판정 규칙 (결과를 보기 전에 정함)

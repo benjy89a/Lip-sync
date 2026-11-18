@@ -13,10 +13,12 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 from .align import WhisperAligner
 from .audio import frame_rms, load_wav, to_wav
 from .export import write_csv, write_json
-from .viseme import (apply_rms, build_keys, build_phones, keys_as_dicts, keys_to_frames, merged_groups,
+from .viseme import (ARKIT_52, apply_rms, build_keys, build_phones, keys_as_dicts, keys_to_frames, merged_groups,
                      phones_as_dicts)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,7 +40,8 @@ def load_script() -> dict[str, dict]:
 
 
 def process(src: Path, aligner: WhisperAligner, out_root: Path, lang: str | None, use_script: bool,
-            preview: bool, cfgs: dict, pipe: dict, script: dict) -> dict:
+            preview: bool, cfgs: dict, pipe: dict, script: dict, emotion_guide: str | None = None,
+            life: bool = False, script_emotion: bool = True) -> dict:
     sid = src.stem
     out = out_root / sid
     out.mkdir(parents=True, exist_ok=True)
@@ -76,6 +79,34 @@ def process(src: Path, aligner: WhisperAligner, out_root: Path, lang: str | None
     frames, scale = apply_rms(frames, rms, pipe["rms"])
     timing["viseme"] = time.perf_counter() - t0
 
+    # 감정 레이어: --emotion 옵션 > script.csv의 emotion 열(대본 표, 기본 입력) > 없음(입 레이어만)
+    # --no-emotion이면 대본 표의 감정을 쓰지 않는다 (1차 측정 재현용)
+    from .emotion import emotion_frames, guide_label, load_emotion_config, merge, parse_guide, speaking
+
+    ecfg = load_emotion_config()
+    if emotion_guide is not None:
+        guide, guide_source = emotion_guide, "option"
+    elif entry.get("emotion") and script_emotion:
+        guide, guide_source = entry["emotion"], "script"
+    elif entry.get("emotion"):
+        guide, guide_source = "", "disabled"  # 대본 표에 감정이 있지만 --no-emotion으로 끔
+    else:
+        guide, guide_source = "", "none"
+    parts = parse_guide(guide, ecfg)
+    layers = {"mouth": frames}
+    if parts:
+        emo = emotion_frames(parts, res, fps, n_frames, ecfg)
+        layers["emotion"] = emo
+        frames = merge(frames, emo, ecfg, talk=speaking(res, fps, n_frames))
+    # 생기 레이어 (눈 깜빡임, 시선): --life 일 때만. 눈 채널만 건드리므로 입 결과는 그대로다
+    if life:
+        from .life import life_frames, load_life_config
+
+        lf = life_frames(res, fps, n_frames, load_life_config(), seed_text=sid)
+        layers["life"] = lf
+        eye = np.array([n.startswith(("eyeBlink", "eyeLook")) for n in ARKIT_52])
+        frames[:, eye] = np.maximum(frames[:, eye], lf[:, eye])
+
     # 신뢰도: 단어 확률이 임계값보다 낮으면 사람이 검수해야 할 대사로 표시
     thr = pipe.get("review", {}).get("min_word_prob", 0.6)
     probs = [w.probability for w in res.words]
@@ -99,9 +130,14 @@ def process(src: Path, aligner: WhisperAligner, out_root: Path, lang: str | None
         "language_source": "option/script" if lang else "auto",
         "boundary_refine": bool(pipe.get("boundary", {}).get("enabled")),
         "boundary_changes": boundary_changes,
+        "emotion": {"guide": guide, "source": guide_source,  # option(--emotion) | script(script.csv) | disabled | none
+                    "parts": [{"emotion": k, "amount": v} for k, v in parts],
+                    "label": guide_label(parts, ecfg)},
     }
     words = [w.__dict__ for w in res.words]
-    write_json(out / f"{sid}.json", meta, words, keys_as_dicts(keys), frames, phones_as_dicts(phones))
+    meta["life_layer"] = bool(life)
+    write_json(out / f"{sid}.json", meta, words, keys_as_dicts(keys), frames, phones_as_dicts(phones),
+               layers=layers if len(layers) > 1 else None)
     write_csv(out / f"{sid}.csv", frames, fps)
 
     if preview:
@@ -109,17 +145,21 @@ def process(src: Path, aligner: WhisperAligner, out_root: Path, lang: str | None
 
         t0 = time.perf_counter()
         render_curves(out / f"{sid}_curves.png", frames, rms, res, fps, title=sid)
-        render_video(out / f"{sid}_preview.mp4", frames, res, wav, fps, title=sid, keys=keys_as_dicts(keys))
+        render_video(out / f"{sid}_preview.mp4", frames, res, wav, fps, title=sid, keys=keys_as_dicts(keys),
+                     emotion_label=guide_label(parts, ecfg) if parts else "")
         timing["preview"] = time.perf_counter() - t0
 
     gen = timing["audio"] + timing["align"] + timing["viseme"]
     flag = f"  ⚠ 검수 필요: {' '.join(w['text'] for w in low) or '단어 없음'}" if confidence["needs_review"] else ""
+    if parts:
+        flag = f"  감정: {guide_label(parts, ecfg)}" + flag
     print(f"  {sid}: [{res.language}] '{res.transcript}'  단어 {len(res.words)}개, 키 {len(keys)}개, "
           f"{n_frames}프레임 | 생성 {gen:.2f}s (정렬 {timing['align']:.2f}s)"
           + (f" + 미리보기 {timing['preview']:.2f}s" if preview else "") + flag)
     return {"id": sid, "language": res.language, "duration": res.duration, "transcript": res.transcript,
             "words": len(res.words), "min_word_prob": confidence["min_word_prob"],
-            "needs_review": confidence["needs_review"], **{f"t_{k}": round(v, 3) for k, v in timing.items()}}
+            "needs_review": confidence["needs_review"], "emotion": guide, "emotion_source": guide_source,
+            "life": bool(life), **{f"t_{k}": round(v, 3) for k, v in timing.items()}}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -134,6 +174,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--refine-boundaries", action=argparse.BooleanOptionalAction, default=None,
                     help="음량으로 단어 앞뒤 무음을 잘라 낸다. 기본은 config/pipeline.json의 boundary.enabled(켜짐). "
                          "보정 전 결과가 필요하면 --no-refine-boundaries")
+    ap.add_argument("--emotion", default=None,
+                    help="감정 가이드. 예: '화남:0.6', 'anger:0.6', '슬픔:0.5+화남:0.3'. "
+                         "생략하면 script.csv의 emotion 열, 그것도 없으면 입 레이어만")
+    ap.add_argument("--no-emotion", action="store_true",
+                    help="script.csv의 감정을 쓰지 않고 입만 만든다 (1차 측정 재현용)")
+    ap.add_argument("--life", action="store_true", help="생기 레이어(눈 깜빡임, 시선)를 더한다 (config/life.json)")
     args = ap.parse_args(argv)
 
     files = sorted(p for p in args.input.iterdir() if p.suffix.lower() in AUDIO_EXT) if args.input.is_dir() else [args.input]
@@ -152,7 +198,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.refine_boundaries is not None:
         pipe.setdefault("boundary", {})["enabled"] = args.refine_boundaries
-    rows = [process(f, aligner, args.out, args.lang, args.use_script, not args.no_preview, cfgs, pipe, script) for f in files]
+    rows = [process(f, aligner, args.out, args.lang, args.use_script, not args.no_preview, cfgs, pipe, script,
+                    emotion_guide=args.emotion, life=args.life, script_emotion=not args.no_emotion) for f in files]
     if rows:
         summary = args.out / "summary.csv"
         with summary.open("w", newline="", encoding="utf-8") as f:

@@ -1,0 +1,65 @@
+{
+  "_comment": "감정 레이어 설정. FACS(얼굴 동작 부호화 체계) 기본 감정의 AU 조합을 ARKit 52 채널 값으로 옮긴 것. 값은 '최대 표정(FACS 강도 E)' 기준이며, 실제로는 가이드의 강도와 speech_scale을 곱해서 쓴다.",
+  "_sources": [
+    "감정별 AU 조합: Wikipedia 'Facial Action Coding System' 감정 표 (EMFACS/FACSAID 기반). 출처마다 일부 차이가 있음",
+    "AU → ARKit 대응: Melinda Ozel 'ARKit to FACS Cheat Sheet', miniface.org. 둘 다 Apple 공식 아님"
+  ],
+  "au_to_arkit": {
+    "_comment": "이 프로젝트가 쓰는 AU와 ARKit 채널의 대응. Left/Right 쌍은 접미사 없이 쓰면 양쪽에 같은 값이 들어간다.",
+    "AU1":  {"name": "눈썹 안쪽 올림", "arkit": ["browInnerUp"]},
+    "AU2":  {"name": "눈썹 바깥쪽 올림", "arkit": ["browOuterUp"]},
+    "AU4":  {"name": "눈썹 내림·모음", "arkit": ["browDown"]},
+    "AU5":  {"name": "윗눈꺼풀 올림", "arkit": ["eyeWide"]},
+    "AU6":  {"name": "볼 올림 (눈가 주름)", "arkit": ["cheekSquint"]},
+    "AU7":  {"name": "눈꺼풀 조임", "arkit": ["eyeSquint"]},
+    "AU9":  {"name": "코 찡그림", "arkit": ["noseSneer"]},
+    "AU12": {"name": "입꼬리 당김", "arkit": ["mouthSmile"]},
+    "AU14": {"name": "보조개 (입꼬리 조임)", "arkit": ["mouthDimple"]},
+    "AU15": {"name": "입꼬리 내림", "arkit": ["mouthFrown"]},
+    "AU17": {"name": "턱 올림 (아랫입술 밀어 올림)", "arkit": ["mouthShrugUpper"], "_note": "Ozel 치트시트 기준. 자료에 따라 mouthShrugLower로 보기도 함"},
+    "AU20": {"name": "입술 옆으로 당김", "arkit": ["mouthStretch"]},
+    "AU23": {"name": "입술 조임", "arkit": ["mouthPress"], "_note": "ARKit에 정확히 대응하는 모양이 없어 mouthPress로 근사"},
+    "AU26": {"name": "턱 내림", "arkit": ["jawOpen"]}
+  },
+  "presets": {
+    "neutral":  {"label": "중립", "au": "", "values": {}},
+    "joy":      {"label": "기쁨", "au": "6+12",
+                 "values": {"cheekSquint": 0.6, "mouthSmile": 0.8}},
+    "sadness":  {"label": "슬픔", "au": "1+4+15",
+                 "values": {"browInnerUp": 0.8, "browDown": 0.3, "mouthFrown": 0.6}},
+    "surprise": {"label": "놀람", "au": "1+2+5+26",
+                 "values": {"browInnerUp": 0.7, "browOuterUp": 0.8, "eyeWide": 0.8, "jawOpen": 0.3}},
+    "fear":     {"label": "두려움", "au": "1+2+4+5+7+20+26",
+                 "values": {"browInnerUp": 0.8, "browOuterUp": 0.5, "browDown": 0.3, "eyeWide": 0.8, "eyeSquint": 0.2,
+                            "mouthStretch": 0.5, "jawOpen": 0.2}},
+    "anger":    {"label": "화남", "au": "4+5+7+23",
+                 "values": {"browDown": 0.8, "eyeWide": 0.3, "eyeSquint": 0.5, "mouthPress": 0.3}},
+    "disgust":  {"label": "혐오", "au": "9+15+17",
+                 "values": {"noseSneer": 0.7, "mouthFrown": 0.4, "mouthShrugUpper": 0.4}},
+    "contempt": {"label": "경멸", "au": "R12 또는 R14 (한쪽)",
+                 "values": {"mouthSmileLeft": 0.6, "mouthDimpleLeft": 0.6},
+                 "_note": "한쪽 입꼬리만 움직이는 표정. 정의가 출처마다 달라 근거가 가장 약함. Left = 캐릭터 기준 왼쪽"}
+  },
+  "aliases": {
+    "중립": "neutral", "기쁨": "joy", "행복": "joy", "슬픔": "sadness", "놀람": "surprise",
+    "두려움": "fear", "공포": "fear", "화남": "anger", "분노": "anger", "혐오": "disgust", "경멸": "contempt"
+  },
+  "speech_scale": 0.6,
+  "_speech_scale_note": "연구의 감정 원형은 최대 표정이라, 말하는 중에 그대로 쓰면 과장된다. 가이드 강도 1.0일 때 실제로는 이 배율까지만 쓴다 (FACS 강도 C 정도).",
+  "envelope": {
+    "attack_sec": 0.35,
+    "release_sec": 0.5,
+    "pre_roll_sec": 0.2,
+    "rest_level": 0.6,
+    "_note": "처음부터 rest_level만큼 감정이 있고(말하기 전에도 화난 사람은 화나 있다), 말 시작 pre_roll 전부터 attack 동안 1.0까지 올라갔다가, 마지막 단어 뒤 release 동안 다시 rest_level로 내려간다. (첫 시도 0.35는 말 전후가 중립처럼 보여서 올림)"
+  },
+  "mouth_blend": {
+    "emotion_weight": 0.8,
+    "_note": "말하는 동안 입 주변 채널은 발음이 우선이라 감정 값을 이 비율로 줄여서 더한다. 말하지 않는 구간은 감정 값을 그대로 쓴다. 눈·눈썹·볼·코는 항상 그대로. (첫 시도 0.6은 speech_scale과 겹쳐 웃음이 거의 안 보여서 올림)",
+    "closure": {"jaw_max": 0.05, "press_min": 0.3,
+                "suppress": ["jawOpen", "mouthStretchLeft", "mouthStretchRight", "mouthSmileLeft", "mouthSmileRight"],
+                "_note": "입술이 닫힌 프레임(ㅁ ㅂ ㅍ)에서는 감정이 입을 벌리거나 옆으로 당기지 못하게 한다."},
+    "antagonists": {"mouthSmile": ["mouthPucker", "mouthFunnel"], "mouthStretch": ["mouthPucker", "mouthFunnel"],
+                    "_note": "입술을 오므리는 발음(ㅜ ㅗ) 중에는 감정의 웃음·당김을 그만큼 줄인다 (반대 방향 근육)."}
+  }
+}

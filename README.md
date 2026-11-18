@@ -73,8 +73,10 @@ ARKit 52채널 30fps ── JSON (채널별 커브) / CSV (프레임별 행)
 git clone https://github.com/benjy89a/Lip-sync.git
 cd Lip-sync
 docker compose build
-# 샘플(TTS 음성) 10개 처리 → outputs/tts/
-docker compose run --rm lipsync python -m src.cli samples/audio/tts
+# 샘플(TTS 음성) 10개 처리 → outputs/tts/  (1차: 입만)
+docker compose run --rm lipsync python -m src.cli samples/audio/tts --no-emotion
+# 2차: 대본 표의 감정 + 깜빡임·시선
+docker compose run --rm lipsync python -m src.cli samples/audio/tts --life --out outputs/tts_emotion
 ```
 
 처음 실행 시 Whisper medium 모델(약 1.5GB)을 내려받아 Docker 볼륨에 캐시합니다.
@@ -89,6 +91,12 @@ docker compose run --rm lipsync python -m src.cli samples/audio/tts
 | `  --use-script` | 대본을 Whisper에 힌트로 전달 (대본이 있는 대사에 권장). 이 실행의 글자 오류율은 정확도로 쓸 수 없음 |
 | `  --no-refine-boundaries` | 음량으로 단어 앞뒤 무음을 잘라 내는 보정을 끔 (기본은 켜짐. Whisper가 쉼을 단어에 붙이는 문제 보정) |
 | `  --no-preview` | MP4/그래프 생략 |
+| (기본) | 대본 표 `samples/script.csv`의 `emotion` 열에 감정이 있으면 그 감정으로 얼굴 전체를 만듦 (2차) |
+| `  --emotion "화남:0.6"` | 감정을 직접 지정해 대본 표를 덮어씀. 여러 감정은 `"슬픔:0.5+화남:0.3"` |
+| `  --no-emotion` | 감정 없이 입만 생성 (1차 결과 재현용) |
+| `  --life` | 생기 레이어: 눈 깜빡임과 시선 움직임 (2차) |
+| `python -m src.contact_sheet <출력 폴더>` | 일괄 처리 결과를 대사마다 한 장면씩 한 장에 모음 |
+| `python -m src.emotion_demo <파일>` | 같은 음성을 감정 8가지로 만들어 한 화면에 비교 (깜빡임·시선 포함) → `outputs/emotion_demo/` |
 | `python -m src.baseline <폴더>` | 기준선: 음량만으로 jawOpen 생성 (AI 없음) → `outputs/<폴더>_rms/` |
 | `python -m src.evaluate <출력 폴더…>` | 수작업 라벨과 비교 채점 → `outputs/eval/` |
 | `python -m src.evaluate --human <라벨A> <라벨B>` | 같은 파일 라벨 두 개의 차이 (현행 수준) |
@@ -101,7 +109,7 @@ Docker 안에서 실행하려면 앞에 `docker compose run --rm lipsync`를 붙
 
 | 파일 | 내용 |
 |---|---|
-| `<id>.json` | `meta`(언어, 전사, fps…), `words`, `phones`(음소 구간), `keys`(비짐 키), `curves`(ARKit 52채널 × 프레임) |
+| `<id>.json` | `meta`(언어, 전사, fps, 감정…), `words`, `phones`(음소 구간), `keys`(비짐 키), `curves`(ARKit 52채널 × 프레임, 최종값), `layers`(감정을 줬을 때만: 입·감정 레이어별 값) |
 | `<id>.csv` | `frame, time, eyeBlinkLeft, …, tongueOut` (52열) |
 | `<id>_preview.mp4` | 2D 입모양 + 음성 |
 | `<id>_curves.png` | 음량, 단어 구간, 채널별 커브 |
@@ -124,13 +132,44 @@ Docker 안에서 실행하려면 앞에 `docker compose run --rm lipsync`를 붙
 
 → 자세한 내용: [검증 결과](docs/evaluation.md)
 
+## 2차 진행 중: 감정 레이어 (얼굴 전체)
+
+1차는 입만 움직였습니다 (ARKit 52채널 중 15개). 2차는 **음성 + 사람이 주는 감정 가이드**로 얼굴 전체를 움직이는 것이 목표입니다.
+첫 단계로 FACS(얼굴 동작 부호화 체계)의 기본 감정 7가지를 ARKit 값으로 옮겨 입 레이어 위에 얹고,
+눈 깜빡임과 시선을 만드는 생기 레이어를 더했습니다.
+
+| 화남 0.8 — "바람이 멈추면 우리는 바다로 간다." | 놀람 0.8 — "네가 말했던 그 약속, 아직 기억해?" |
+|---|---|
+| ![화남 0.8 + 깜빡임·시선](outputs/showcase/ko_01_anger.gif) | ![놀람 0.8 + 깜빡임·시선](outputs/showcase/ko_04_surprise.gif) |
+
+같은 음성을 감정 8가지로 만든 결과 (위 두 줄은 말하는 중, 아래 두 줄은 말이 끝난 뒤):
+
+![같은 음성, 감정 8가지](outputs/showcase/ko_01_emotions.png)
+
+**감정은 대본 표에서 넣습니다.** `samples/script.csv`의 `emotion` 열에 대사마다 감정을 적어 두면, 폴더째 돌릴 때 대사별로 적용됩니다.
+녹음 12줄을 대본 표 그대로 일괄 생성한 결과:
+
+![대본 표 감정으로 일괄 생성](outputs/showcase/script_emotion_batch.png)
+
+같은 가이드(놀람 0.8)를 TTS 음성과 직접 녹음에 준 결과 (같은 단어 시점끼리). 표정은 같고, 입은 각 음성의 발음을 따릅니다:
+
+![TTS vs 직접 녹음, 놀람](outputs/showcase/ko_04_surprise_tts_vs_voice.png)
+
+- 영상: [감정 8가지](outputs/showcase/ko_01_emotions.mp4) · [화남](outputs/showcase/ko_01_anger_preview.mp4) · [놀람](outputs/showcase/ko_04_surprise_preview.mp4)
+  · [놀람 TTS → 직접 녹음](outputs/showcase/ko_04_surprise_tts_vs_voice.mp4)
+  · 커브: [화남](outputs/showcase/ko_01_anger_curves.png) · [놀람](outputs/showcase/ko_04_surprise_curves.png)
+- 감정과 깜빡임·시선을 얹어도 입 닫힘(ㅁ ㅂ ㅍ) 적중률과 모음 시작 오차는 8가지 감정 모두에서 그대로입니다.
+- 감정 표정은 아직 대사 내내 고정돼 있습니다. 강조할 때 눈썹이 움직이는 강조 레이어가 다음 단계입니다.
+
+→ 자세한 내용: [감정 레이어](docs/emotion_layer.md)
+
 ## 프로젝트 구조
 
 ```
-├── config/            비짐 매핑(ko/en), 파이프라인 설정
+├── config/            비짐 매핑(ko/en), 파이프라인 설정, 감정 프리셋(emotion.json), 깜빡임·시선(life.json)
 ├── docs/              문제 정의서, 모델 선정, 검증 결과, 라벨링 가이드
 ├── notebooks/         Colab 재현 노트북
-├── samples/           대본(script.csv), 음성, 수작업 라벨
+├── samples/           대본 표(script.csv: 대사, 언어, 감정), 음성, 수작업 라벨
 ├── src/
 │   ├── audio.py       ffmpeg 변환, RMS
 │   ├── align.py       정렬 인터페이스 + Whisper 구현
@@ -138,11 +177,16 @@ Docker 안에서 실행하려면 앞에 `docker compose run --rm lipsync`를 붙
 │   ├── boundary.py    음량으로 단어 경계 보정
 │   ├── viseme.py      음소→비짐→ARKit, 시간 배치, 보간, RMS
 │   ├── export.py      JSON/CSV
-│   ├── preview.py     2D 입모양 MP4, 커브 그래프
+│   ├── emotion.py     감정 가이드 → 얼굴 전체 커브, 입과 합치기 (2차)
+│   ├── life.py        눈 깜빡임, 시선 (2차)
+│   ├── emotion_demo.py 같은 음성을 감정별로 비교 (2차)
+│   ├── contact_sheet.py 일괄 처리 결과를 한 장에
+│   ├── face2d.py      ARKit 값 → 2D 사람 얼굴 그림
+│   ├── preview.py     2D 얼굴 MP4, 커브 그래프
 │   ├── cli.py         단일 파일/폴더 배치 실행
 │   ├── baseline.py    기준선: 음량만으로 jawOpen
 │   ├── evaluate.py    수작업 라벨 대비 채점, 사람끼리 차이
-│   └── compare.py     두 결과 비교
+│   ├── compare.py     두 결과 비교
 │   └── selfcheck.py   채점 지표 자체 검증
 ├── tools/
 │   ├── recorder.html  대본 녹음 페이지 (브라우저)
@@ -160,6 +204,7 @@ Docker 안에서 실행하려면 앞에 `docker compose run --rm lipsync`를 붙
 | [검증 결과](docs/evaluation.md) | 지표 검증, 측정 결과, 실패 사례, 추가 시도, 구축 여부 결론 |
 | [회고](docs/retrospective.md) | 주제 선정, 기준의 근거, 제외한 후보, 다음에 바꿀 것 |
 | [녹음·라벨링 가이드](docs/labeling_guide.md) | 정답 데이터를 만든 방법 |
+| [감정 레이어](docs/emotion_layer.md) | 2차: FACS 기본 감정 → ARKit, 깜빡임·시선, 입과 합치는 규칙, 2D 얼굴, 튜닝 기록, 검증 |
 
 ## 한계와 다음 단계
 
@@ -168,7 +213,7 @@ Docker 안에서 실행하려면 앞에 `docker compose run --rm lipsync`를 붙
 - **검증 표본이 작습니다.** 라벨 2개 파일, 화자 1명입니다.
 - 자동 결과를 사람이 고치는 시간은 재지 않았습니다.
 - 신뢰도 표시만으로는 인식 오류를 다 거르지 못합니다 (확신하면서 틀린 경우). 대본이 있으면 대본 힌트를 씁니다.
-- 입 주변 채널만 생성합니다 (눈썹, 눈, 고개는 2차).
+- 1차는 입 주변 채널만 생성합니다. 2차에서 감정 레이어(눈썹·눈·볼·코)와 생기 레이어(깜빡임·시선)를 더했고, 강조에 따른 표정 변화와 고개 움직임은 아직 없습니다.
 - Maya/Blender/UE5 임포트 스크립트는 2차입니다.
 
 ## 라이선스와 출처

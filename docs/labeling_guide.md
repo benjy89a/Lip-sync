@@ -89,9 +89,9 @@ ko_02,380,
 
 ```bash
 # 목소리 → outputs/audio/
-docker compose run --rm lipsync python -m src.cli samples/audio
+docker compose run --rm lipsync python -m src.cli samples/audio --no-emotion
 # TTS → outputs/tts/
-docker compose run --rm lipsync python -m src.cli samples/audio/tts
+docker compose run --rm lipsync python -m src.cli samples/audio/tts --no-emotion
 # 기준선: 음량만으로 턱 움직이기 → outputs/audio_rms/
 docker compose run --rm lipsync python -m src.baseline samples/audio
 # 채점 (TTS 라벨은 samples/labels/tts/<id>.txt 에 두면 함께 채점)
